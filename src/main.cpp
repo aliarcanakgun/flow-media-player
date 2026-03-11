@@ -29,6 +29,7 @@ struct PlaylistItem {
     std::string path;
     double volume;
     std::vector<int> skip_points;
+    bool enable_audio_fading;
 };
 
 static void on_mpv_render_update(void* ctx) {
@@ -269,6 +270,7 @@ int main(int argc, char* argv[]) {
             pi.path = (base_path / p).string();
         }
         pi.volume = el.value("volume", 100.0);
+        pi.enable_audio_fading = el.value("enable_audio_fading", true);
         if (el.contains("skip_points")) {
             for (const auto& sp_el : el["skip_points"]) {
                 if (sp_el.is_number()) {
@@ -516,6 +518,17 @@ int main(int argc, char* argv[]) {
                 state = TransitionState::CROSSFADE_IN;
                 transition_start = SDL_GetTicks();
             }
+        }
+
+        // sync audio volume with the visual fade when enabled for this video
+        if (playlist[current_index].enable_audio_fading && state != TransitionState::NONE && state != TransitionState::ENDED) {
+            double base_vol = playlist[current_index].volume;
+            double faded_vol = base_vol * (1.0 - (double)alpha);
+            mpv_set_property(mpv, "volume", MPV_FORMAT_DOUBLE, &faded_vol);
+        } else if (state == TransitionState::NONE) {
+            // make sure volume is back to normal once the transition ends
+            double base_vol = playlist[current_index].volume;
+            mpv_set_property(mpv, "volume", MPV_FORMAT_DOUBLE, &base_vol);
         }
 
         if (alpha > 0.0f) {

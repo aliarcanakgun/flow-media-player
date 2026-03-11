@@ -9,6 +9,7 @@ It reads a JSON playlist, plays each video back-to-back, and adds smooth fade tr
 - **Per-video volume** — set a different volume level for each entry in the playlist.
 - **Skip points** — define timestamp markers per video; hit a number key (1-9) to jump there with a quick crossfade.
 - **Fade transitions** — 1 s fade-in when a video starts, 600 ms fade-out when it ends or when switching tracks.
+- **Audio fading** — audio volume fades in sync with the visual transitions. can be toggled per video via `enable_audio_fading`.
 - **Crossfade seeks** — jumping to a skip point or restarting does a fast 150 ms crossfade instead of a hard cut.
 - **Pause / play overlay** — a small icon appears in the corner and fades out after a second.
 - **Auto-hide cursor** — the mouse cursor is hidden so it doesn't sit on top of your video.
@@ -25,19 +26,22 @@ Create a JSON file like this:
     {
         "path": "videos/intro.mp4",
         "volume": 80,
-        "skip_points": [30, 95, 210]
+        "skip_points": [30, 95, 210],
+        "enable_audio_fading": true
     },
     {
         "path": "videos/main.mp4",
         "volume": 50,
-        "skip_points": []
+        "skip_points": [],
+        "enable_audio_fading": false
     }
 ]
 ```
 
 - **path** — absolute or relative to the playlist file.
-- **volume** — 0–100, defaults to 100 if omitted.
-- **skip_points** — list of timestamps in seconds. keys 1–9 jump to the corresponding entry.
+- **volume** — 0–100, defaults to `100` if omitted.
+- **skip_points** — list of timestamps in seconds, defaults to `[]` if omitted. keys 1–9 jump to the corresponding entry.
+- **enable_audio_fading** — when `true`, audio volume fades in sync with visual transitions. defaults to `true` if omitted.
 
 ## Controls
 
