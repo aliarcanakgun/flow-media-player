@@ -6,13 +6,13 @@ It reads a JSON playlist, plays each video back-to-back, and adds smooth fade tr
 ## Features
 
 - **JSON playlist** — point it at a `.json` file and it plays through your videos in order. paths can be relative to the playlist file.
-- **per-video volume** — set a different volume level for each entry in the playlist.
-- **skip points** — define timestamp markers per video; hit a number key (1-9) to jump there with a quick crossfade.
-- **fade transitions** — 1 s fade-in when a video starts, 600 ms fade-out when it ends or when switching tracks.
-- **crossfade seeks** — jumping to a skip point or restarting does a fast 150 ms crossfade instead of a hard cut.
-- **pause / play overlay** — a small icon appears in the corner and fades out after a second.
-- **auto-hide cursor** — the mouse cursor is hidden so it doesn't sit on top of your video.
-- **hardware decoding** — uses `hwdec=auto` so playback is easy on the CPU when your GPU supports it.
+- **Per-video volume** — set a different volume level for each entry in the playlist.
+- **Skip points** — define timestamp markers per video; hit a number key (1-9) to jump there with a quick crossfade.
+- **Fade transitions** — 1 s fade-in when a video starts, 600 ms fade-out when it ends or when switching tracks.
+- **Crossfade seeks** — jumping to a skip point or restarting does a fast 150 ms crossfade instead of a hard cut.
+- **Pause / play overlay** — a small icon appears in the corner and fades out after a second.
+- **Auto-hide cursor** — the mouse cursor is hidden so it doesn't sit on top of your video.
+- **Hardware decoding** — uses `hwdec=auto` so playback is easy on the CPU when your GPU supports it.
 
 ## Playlist format
 
@@ -57,7 +57,7 @@ Create a JSON file like this:
 ### Prerequisites
 
 - **CMake** 3.10+
-- a C++17 compiler (MSVC, MinGW, etc.)
+- A C++17 compiler (MSVC, MinGW, etc.)
 - **libmpv** dev files — run the included `download_mpv.ps1` to grab them, or drop `libmpv.dll.a` and the headers into the `libmpv/` folder yourself.
 
 ### Steps
