@@ -7,6 +7,7 @@
 #include <string>
 #include <filesystem>
 #include <algorithm>
+#include <cmath>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -49,11 +50,12 @@ struct PlaylistItem {
     bool enable_audio_fading;
 };
 
+static Uint32 wakeup_event_type = (Uint32)-1;
+
 static void on_mpv_render_update(void* ctx) {
     SDL_Event event = {0};
-    event.type = SDL_RegisterEvents(1);
-    if (event.type != (Uint32)-1)
-        SDL_PushEvent(&event);
+    event.type = wakeup_event_type;
+    SDL_PushEvent(&event);
 }
 
 static void* get_proc_address(void* ctx, const char* name) {
@@ -87,11 +89,18 @@ static void end_overlay() {
     glPopMatrix();
 }
 
+static double current_volume = 100.0;
+static bool volume_needs_restore = false;
+static bool is_paused = false;
+static double last_sent_volume = -1.0;
+
 void load_video(mpv_handle* mpv, const PlaylistItem& item) {
     const char* cmd[] = {"loadfile", item.path.c_str(), nullptr};
-    mpv_command(mpv, cmd);
-    double vol = item.volume;
-    mpv_set_property(mpv, "volume", MPV_FORMAT_DOUBLE, &vol);
+    mpv_command_async(mpv, 0, cmd);
+    current_volume = item.volume;
+    double vol = current_volume;
+    mpv_set_property_async(mpv, 0, "volume", MPV_FORMAT_DOUBLE, &vol);
+    last_sent_volume = vol;
 }
 
 std::string open_file_dialog() {
@@ -115,10 +124,9 @@ std::string open_file_dialog() {
 }
 
 void toggle_pause(mpv_handle* mpv) {
-    int pause = 0;
-    mpv_get_property(mpv, "pause", MPV_FORMAT_FLAG, &pause);
-    pause = !pause;
-    mpv_set_property(mpv, "pause", MPV_FORMAT_FLAG, &pause);
+    is_paused = !is_paused;
+    int pause = is_paused ? 1 : 0;
+    mpv_set_property_async(mpv, 0, "pause", MPV_FORMAT_FLAG, &pause);
 }
 
 static bool icon_visible = false;
@@ -199,10 +207,10 @@ void draw_stop_icon(int win_w, int win_h) {
 }
 
 void change_volume(mpv_handle* mpv, double delta) {
-    double vol = 0;
-    mpv_get_property(mpv, "volume", MPV_FORMAT_DOUBLE, &vol);
-    vol = std::clamp(vol + delta, 0.0, 100.0);
-    mpv_set_property(mpv, "volume", MPV_FORMAT_DOUBLE, &vol);
+    current_volume = std::clamp(current_volume + delta, 0.0, 100.0);
+    double vol = current_volume;
+    mpv_set_property_async(mpv, 0, "volume", MPV_FORMAT_DOUBLE, &vol);
+    last_sent_volume = vol;
 }
 
 enum class TransitionState {
@@ -315,7 +323,11 @@ int main(int argc, char* argv[]) {
 
     mpv_render_context* mpv_gl = nullptr;
     if (mpv_render_context_create(&mpv_gl, mpv, params) < 0) die("failed to initialize mpv GL context");
+    wakeup_event_type = SDL_RegisterEvents(1);
+    if (wakeup_event_type == (Uint32)-1) die("failed to register SDL event");
     mpv_render_context_set_update_callback(mpv_gl, on_mpv_render_update, nullptr);
+
+    mpv_observe_property(mpv, 0, "time-remaining", MPV_FORMAT_DOUBLE);
 
     if (!playlist.empty()) load_video(mpv, playlist[current_index]);
 
@@ -343,8 +355,9 @@ int main(int argc, char* argv[]) {
             stop_icon_visible = false;
             current_index = pending_index;
             load_video(mpv, playlist[current_index]);
+            is_paused = false;
             int pause = 0;
-            mpv_set_property(mpv, "pause", MPV_FORMAT_FLAG, &pause);
+            mpv_set_property_async(mpv, 0, "pause", MPV_FORMAT_FLAG, &pause);
             state = TransitionState::WAIT_FOR_FADE_IN;
         } else {
             state = TransitionState::FADE_OUT_SWITCH;
@@ -362,9 +375,7 @@ int main(int argc, char* argv[]) {
                     request_exit();
                 } else if (e.key.keysym.sym == SDLK_SPACE) {
                     toggle_pause(mpv);
-                    int is_paused = 0;
-                    mpv_get_property(mpv, "pause", MPV_FORMAT_FLAG, &is_paused);
-                    show_pause_icon(is_paused != 0);
+                    show_pause_icon(is_paused);
                 } else if (e.key.keysym.sym == SDLK_UP) {
                     change_volume(mpv, 10.0);
                 } else if (e.key.keysym.sym == SDLK_DOWN) {
@@ -376,14 +387,16 @@ int main(int argc, char* argv[]) {
                     if (!playlist.empty() && current_index > 0)
                         try_navigate(current_index - 1);
                 } else if (e.key.keysym.sym == SDLK_LGUI || e.key.keysym.sym == SDLK_RGUI) {
+                    is_paused = true;
                     int pause = 1;
-                    mpv_set_property(mpv, "pause", MPV_FORMAT_FLAG, &pause);
+                    mpv_set_property_async(mpv, 0, "pause", MPV_FORMAT_FLAG, &pause);
                     SDL_MinimizeWindow(window);
                 } else if (e.key.keysym.sym == SDLK_0) {
                     if (state == TransitionState::NONE && !playlist.empty()) {
                         mpv_command_string(mpv, "seek 0 absolute");
+                        is_paused = true;
                         int pause = 1;
-                        mpv_set_property(mpv, "pause", MPV_FORMAT_FLAG, &pause);
+                        mpv_set_property_async(mpv, 0, "pause", MPV_FORMAT_FLAG, &pause);
                         state = TransitionState::WAIT_FOR_CROSSFADE_IN;
                     }
                 } else if (normalize_number_key(e.key.keysym.sym) >= 0) {
@@ -399,15 +412,6 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        if (state == TransitionState::NONE) {
-            double time_remaining = 0.0;
-            if (mpv_get_property(mpv, "time-remaining", MPV_FORMAT_DOUBLE, &time_remaining) >= 0
-                && time_remaining <= 0.6 && time_remaining >= 0.0) {
-                state = TransitionState::FADE_OUT_END;
-                transition_start = SDL_GetTicks();
-            }
-        }
-
         while (mpv_event* mpv_e = mpv_wait_event(mpv, 0)) {
             if (mpv_e->event_id == MPV_EVENT_NONE) break;
             if (mpv_e->event_id == MPV_EVENT_PLAYBACK_RESTART) {
@@ -417,6 +421,15 @@ int main(int argc, char* argv[]) {
                 } else if (state == TransitionState::WAIT_FOR_CROSSFADE_IN) {
                     state = TransitionState::CROSSFADE_IN;
                     transition_start = SDL_GetTicks();
+                }
+            } else if (mpv_e->event_id == MPV_EVENT_PROPERTY_CHANGE) {
+                mpv_event_property* prop = (mpv_event_property*)mpv_e->data;
+                if (prop->format == MPV_FORMAT_DOUBLE && prop->name && std::string(prop->name) == "time-remaining") {
+                    double time_remaining = *(double*)prop->data;
+                    if (state == TransitionState::NONE && time_remaining <= 0.6 && time_remaining >= 0.0) {
+                        state = TransitionState::FADE_OUT_END;
+                        transition_start = SDL_GetTicks();
+                    }
                 }
             }
         }
@@ -490,11 +503,18 @@ int main(int argc, char* argv[]) {
 
         // fade audio along with the overlay when the flag is set
         if (playlist[current_index].enable_audio_fading && state != TransitionState::NONE && state != TransitionState::ENDED) {
-            double vol = playlist[current_index].volume * (1.0 - (double)alpha);
-            mpv_set_property(mpv, "volume", MPV_FORMAT_DOUBLE, &vol);
-        } else if (state == TransitionState::NONE) {
-            double vol = playlist[current_index].volume;
-            mpv_set_property(mpv, "volume", MPV_FORMAT_DOUBLE, &vol);
+            double vol = current_volume * (1.0 - (double)alpha);
+            if (std::abs(vol - last_sent_volume) >= 1.0 || vol <= 0.05) {
+                mpv_set_property_async(mpv, 0, "volume", MPV_FORMAT_DOUBLE, &vol);
+                last_sent_volume = vol;
+            }
+            volume_needs_restore = true;
+        } else if (volume_needs_restore && state == TransitionState::NONE) {
+            // restore volume once after a fade transition ends
+            double vol = current_volume;
+            mpv_set_property_async(mpv, 0, "volume", MPV_FORMAT_DOUBLE, &vol);
+            last_sent_volume = vol;
+            volume_needs_restore = false;
         }
 
         if (alpha > 0.0f) {
