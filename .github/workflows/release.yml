@@ -16,12 +16,41 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install 7-Zip
-        run: choco install 7zip -y
-
-      - name: Download libmpv (via project script)
+      - name: Download and extract libmpv
         shell: pwsh
-        run: .\download_mpv.ps1
+        run: |
+          $ProgressPreference = 'SilentlyContinue'
+          $repo = "shinchiro/mpv-winbuild-cmake"
+          $apiUrl = "https://api.github.com/repos/$repo/releases/latest"
+          $release = Invoke-RestMethod -Uri $apiUrl
+          $asset = $release.assets | Where-Object { $_.name -like "mpv-dev-x86_64-*.7z" } | Select-Object -First 1
+          if (-not $asset) { Write-Error "mpv-dev asset not found"; exit 1 }
+          Write-Host "Downloading $($asset.name)..."
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile mpv-dev.7z
+          if (Test-Path libmpv) { Remove-Item -Recurse -Force libmpv }
+          & 7z x mpv-dev.7z -olibmpv -y
+          # if headers ended up in a nested subdirectory, flatten it
+          $nested = Get-ChildItem -Path libmpv -Directory | Where-Object { Test-Path "$($_.FullName)/include" }
+          if ($nested) {
+            Write-Host "Flattening nested directory: $($nested.Name)"
+            Get-ChildItem -Path $nested.FullName | Move-Item -Destination libmpv -Force
+            Remove-Item -Path $nested.FullName -Recurse -Force
+          }
+
+      - name: Verify libmpv structure
+        shell: pwsh
+        run: |
+          Write-Host "--- libmpv contents ---"
+          Get-ChildItem -Path libmpv -Recurse | ForEach-Object { Write-Host $_.FullName }
+          if (-not (Test-Path "libmpv/include/mpv/client.h")) {
+            Write-Error "libmpv/include/mpv/client.h not found!"
+            exit 1
+          }
+          if (-not (Test-Path "libmpv/libmpv-2.dll")) {
+            Write-Error "libmpv/libmpv-2.dll not found!"
+            exit 1
+          }
+          Write-Host "Verification OK"
 
       - name: Configure CMake
         run: |
