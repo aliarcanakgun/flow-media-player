@@ -18,9 +18,26 @@
 
 using json = nlohmann::json;
 
+#ifndef GL_BLEND
+#define GL_BLEND        0x0BE2
+#endif
 #ifndef GL_SRC_ALPHA
-#define GL_SRC_ALPHA 0x0302
+#define GL_SRC_ALPHA    0x0302
+#endif
+#ifndef GL_ONE_MINUS_SRC_ALPHA
 #define GL_ONE_MINUS_SRC_ALPHA 0x0303
+#endif
+#ifndef GL_QUADS
+#define GL_QUADS        0x0007
+#endif
+#ifndef GL_TRIANGLES
+#define GL_TRIANGLES    0x0004
+#endif
+#ifndef GL_PROJECTION
+#define GL_PROJECTION   0x1701
+#endif
+#ifndef GL_MODELVIEW
+#define GL_MODELVIEW    0x1700
 #endif
 
 namespace fs = std::filesystem;
@@ -35,9 +52,8 @@ struct PlaylistItem {
 static void on_mpv_render_update(void* ctx) {
     SDL_Event event = {0};
     event.type = SDL_RegisterEvents(1);
-    if (event.type != ((Uint32)-1)) {
+    if (event.type != (Uint32)-1)
         SDL_PushEvent(&event);
-    }
 }
 
 static void* get_proc_address(void* ctx, const char* name) {
@@ -47,6 +63,28 @@ static void* get_proc_address(void* ctx, const char* name) {
 static void die(const char* msg) {
     std::cerr << "ERROR: " << msg << std::endl;
     exit(1);
+}
+
+// sets up an orthographic projection for 2d overlay drawing.
+// call end_overlay() when done to restore the previous matrices.
+static void begin_overlay(int w, int h) {
+    glMatrixMode(GL_PROJECTION);
+    glPushMatrix();
+    glLoadIdentity();
+    glOrtho(0, w, h, 0, -1, 1);
+    glMatrixMode(GL_MODELVIEW);
+    glPushMatrix();
+    glLoadIdentity();
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+}
+
+static void end_overlay() {
+    glDisable(GL_BLEND);
+    glMatrixMode(GL_MODELVIEW);
+    glPopMatrix();
+    glMatrixMode(GL_PROJECTION);
+    glPopMatrix();
 }
 
 void load_video(mpv_handle* mpv, const PlaylistItem& item) {
@@ -83,9 +121,8 @@ void toggle_pause(mpv_handle* mpv) {
     mpv_set_property(mpv, "pause", MPV_FORMAT_FLAG, &pause);
 }
 
-// pause/play icon state
 static bool icon_visible = false;
-static bool icon_is_paused = false; // true = pause bars, false = play triangle
+static bool icon_is_paused = false;
 static Uint32 icon_show_time = 0;
 static const Uint32 ICON_DURATION_MS = 1000;
 
@@ -104,114 +141,67 @@ void draw_pause_play_icon(int win_w, int win_h) {
         return;
     }
 
-    float icon_alpha = 1.0f - (float)elapsed / (float)ICON_DURATION_MS;
+    float alpha = 1.0f - (float)elapsed / (float)ICON_DURATION_MS;
+    begin_overlay(win_w, win_h);
 
-    // switch to pixel coords so we can draw the icon at a fixed spot
-    glMatrixMode(0x1701); // gl_projection
-    glPushMatrix();
-    glLoadIdentity();
-    glOrtho(0, win_w, win_h, 0, -1, 1); // origin at top-left
-    glMatrixMode(0x1700); // gl_modelview
-    glPushMatrix();
-    glLoadIdentity();
-
-    glEnable(0x0BE2); // gl_blend
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-    // position and sizing
     float margin = 20.0f;
     float size = 18.0f;
 
     if (icon_is_paused) {
-        // two vertical bars for pause
-        float bar_w = 5.0f;
-        float gap = 4.0f;
-        float x = margin;
-        float y = margin;
+        float bar_w = 5.0f, gap = 4.0f;
+        float x = margin, y = margin;
+        glColor4f(1, 1, 1, alpha * 0.85f);
 
-        glColor4f(1.0f, 1.0f, 1.0f, icon_alpha * 0.85f);
-
-        // left bar
-        glBegin(0x0007); // gl_quads
+        glBegin(GL_QUADS);
         glVertex2f(x, y);
         glVertex2f(x + bar_w, y);
         glVertex2f(x + bar_w, y + size);
         glVertex2f(x, y + size);
         glEnd();
 
-        // right bar
-        glBegin(0x0007);
+        glBegin(GL_QUADS);
         glVertex2f(x + bar_w + gap, y);
         glVertex2f(x + bar_w + gap + bar_w, y);
         glVertex2f(x + bar_w + gap + bar_w, y + size);
         glVertex2f(x + bar_w + gap, y + size);
         glEnd();
     } else {
-        // right-pointing triangle for play
-        float x = margin;
-        float y = margin;
+        float x = margin, y = margin;
+        glColor4f(1, 1, 1, alpha * 0.85f);
 
-        glColor4f(1.0f, 1.0f, 1.0f, icon_alpha * 0.85f);
-
-        glBegin(0x0004); // gl_triangles
+        glBegin(GL_TRIANGLES);
         glVertex2f(x, y);
         glVertex2f(x, y + size);
         glVertex2f(x + size * 0.85f, y + size / 2.0f);
         glEnd();
     }
 
-    glDisable(0x0BE2);
-
-    // restore previous matrices
-    glMatrixMode(0x1700);
-    glPopMatrix();
-    glMatrixMode(0x1701);
-    glPopMatrix();
+    end_overlay();
 }
 
-// stop icon — stays on screen after the last video finishes
 static bool stop_icon_visible = false;
 
 void draw_stop_icon(int win_w, int win_h) {
     if (!stop_icon_visible) return;
 
-    glMatrixMode(0x1701); // gl_projection
-    glPushMatrix();
-    glLoadIdentity();
-    glOrtho(0, win_w, win_h, 0, -1, 1);
-    glMatrixMode(0x1700); // gl_modelview
-    glPushMatrix();
-    glLoadIdentity();
+    begin_overlay(win_w, win_h);
 
-    glEnable(0x0BE2); // gl_blend
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-    float margin = 20.0f;
-    float size = 16.0f;
-
-    glColor4f(1.0f, 1.0f, 1.0f, 0.60f);
-    glBegin(0x0007); // gl_quads
+    float margin = 20.0f, size = 16.0f;
+    glColor4f(1, 1, 1, 0.60f);
+    glBegin(GL_QUADS);
     glVertex2f(margin, margin);
     glVertex2f(margin + size, margin);
     glVertex2f(margin + size, margin + size);
     glVertex2f(margin, margin + size);
     glEnd();
 
-    glDisable(0x0BE2);
-
-    glMatrixMode(0x1700);
-    glPopMatrix();
-    glMatrixMode(0x1701);
-    glPopMatrix();
+    end_overlay();
 }
 
-// volume up/down with clamping
 void change_volume(mpv_handle* mpv, double delta) {
     double vol = 0;
     mpv_get_property(mpv, "volume", MPV_FORMAT_DOUBLE, &vol);
-    vol += delta;
-    if (vol < 0) vol = 0;
-    if (vol > 100) vol = 100;
+    vol = std::clamp(vol + delta, 0.0, 100.0);
     mpv_set_property(mpv, "volume", MPV_FORMAT_DOUBLE, &vol);
 }
 
@@ -228,7 +218,6 @@ enum class TransitionState {
     WAIT_FOR_CROSSFADE_IN
 };
 
-// number key → skip point mapping
 int normalize_number_key(int key) {
     if (key >= SDLK_1 && key <= SDLK_9) return key - SDLK_1;
     if (key >= SDLK_KP_1 && key <= SDLK_KP_9) return key - SDLK_KP_1;
@@ -284,7 +273,7 @@ int main(int argc, char* argv[]) {
 
     int current_index = 0;
 
-    // need compatibility profile so we can use fixed-function gl for fades
+    // compatibility profile needed for fixed-function gl fades
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
@@ -307,10 +296,10 @@ int main(int argc, char* argv[]) {
     mpv_handle* mpv = mpv_create();
     if (!mpv) die("failed creating context");
 
-    mpv_set_option_string(mpv, "vo", "libmpv"); // render into our window, not a separate one
+    mpv_set_option_string(mpv, "vo", "libmpv");
     mpv_set_option_string(mpv, "terminal", "yes");
     mpv_set_option_string(mpv, "msg-level", "all=v");
-    mpv_set_option_string(mpv, "hwdec", "auto"); 
+    mpv_set_option_string(mpv, "hwdec", "auto");
     mpv_set_option_string(mpv, "keep-open", "yes");
     mpv_set_option_string(mpv, "osc", "no");
     mpv_set_option_string(mpv, "osd-level", "0");
@@ -338,24 +327,39 @@ int main(int argc, char* argv[]) {
     int pending_index = -1;
     double pending_seek = 0.0;
 
+    auto request_exit = [&]() {
+        if (state == TransitionState::ENDED || state == TransitionState::FADE_OUT_END) {
+            quit = true;
+        } else if (state != TransitionState::FADE_OUT_EXIT) {
+            state = TransitionState::FADE_OUT_EXIT;
+            transition_start = SDL_GetTicks();
+        }
+    };
+
+    auto try_navigate = [&](int next) {
+        if (state != TransitionState::NONE && state != TransitionState::ENDED) return;
+        pending_index = next;
+        if (state == TransitionState::ENDED) {
+            stop_icon_visible = false;
+            current_index = pending_index;
+            load_video(mpv, playlist[current_index]);
+            int pause = 0;
+            mpv_set_property(mpv, "pause", MPV_FORMAT_FLAG, &pause);
+            state = TransitionState::WAIT_FOR_FADE_IN;
+        } else {
+            state = TransitionState::FADE_OUT_SWITCH;
+            transition_start = SDL_GetTicks();
+        }
+    };
+
     while (!quit) {
         SDL_Event e;
         if (SDL_WaitEventTimeout(&e, 10)) {
             if (e.type == SDL_QUIT) {
-                if (state == TransitionState::ENDED || state == TransitionState::FADE_OUT_END) {
-                    quit = true;
-                } else if (state != TransitionState::FADE_OUT_EXIT) {
-                    state = TransitionState::FADE_OUT_EXIT;
-                    transition_start = SDL_GetTicks();
-                }
+                request_exit();
             } else if (e.type == SDL_KEYDOWN) {
                 if (e.key.keysym.sym == SDLK_ESCAPE) {
-                    if (state == TransitionState::ENDED || state == TransitionState::FADE_OUT_END) {
-                        quit = true;
-                    } else if (state != TransitionState::FADE_OUT_EXIT) {
-                        state = TransitionState::FADE_OUT_EXIT;
-                        transition_start = SDL_GetTicks();
-                    }
+                    request_exit();
                 } else if (e.key.keysym.sym == SDLK_SPACE) {
                     toggle_pause(mpv);
                     int is_paused = 0;
@@ -366,48 +370,20 @@ int main(int argc, char* argv[]) {
                 } else if (e.key.keysym.sym == SDLK_DOWN) {
                     change_volume(mpv, -10.0);
                 } else if (e.key.keysym.sym == SDLK_RIGHT) {
-                    if (!playlist.empty() && current_index < (int)playlist.size() - 1 && (state == TransitionState::NONE || state == TransitionState::ENDED)) {
-                        pending_index = current_index + 1;
-                        if (state == TransitionState::ENDED) {
-                            // already on black screen, just load straight away
-                            stop_icon_visible = false;
-                            current_index = pending_index;
-                            load_video(mpv, playlist[current_index]);
-                            int pause = 0;
-                            mpv_set_property(mpv, "pause", MPV_FORMAT_FLAG, &pause);
-                            state = TransitionState::WAIT_FOR_FADE_IN;
-                        } else {
-                            state = TransitionState::FADE_OUT_SWITCH;
-                            transition_start = SDL_GetTicks();
-                        }
-                    }
+                    if (!playlist.empty() && current_index < (int)playlist.size() - 1)
+                        try_navigate(current_index + 1);
                 } else if (e.key.keysym.sym == SDLK_LEFT) {
-                    if (!playlist.empty() && current_index > 0 && (state == TransitionState::NONE || state == TransitionState::ENDED)) {
-                        pending_index = current_index - 1;
-                        if (state == TransitionState::ENDED) {
-                            stop_icon_visible = false;
-                            current_index = pending_index;
-                            load_video(mpv, playlist[current_index]);
-                            int pause = 0;
-                            mpv_set_property(mpv, "pause", MPV_FORMAT_FLAG, &pause);
-                            state = TransitionState::WAIT_FOR_FADE_IN;
-                        } else {
-                            state = TransitionState::FADE_OUT_SWITCH;
-                            transition_start = SDL_GetTicks();
-                        }
-                    }
+                    if (!playlist.empty() && current_index > 0)
+                        try_navigate(current_index - 1);
                 } else if (e.key.keysym.sym == SDLK_LGUI || e.key.keysym.sym == SDLK_RGUI) {
                     int pause = 1;
                     mpv_set_property(mpv, "pause", MPV_FORMAT_FLAG, &pause);
                     SDL_MinimizeWindow(window);
                 } else if (e.key.keysym.sym == SDLK_0) {
                     if (state == TransitionState::NONE && !playlist.empty()) {
-                        // restart current video from the beginning, paused
                         mpv_command_string(mpv, "seek 0 absolute");
                         int pause = 1;
                         mpv_set_property(mpv, "pause", MPV_FORMAT_FLAG, &pause);
-                        
-                        // wait for mpv to actually restart before fading back in
                         state = TransitionState::WAIT_FOR_CROSSFADE_IN;
                     }
                 } else if (normalize_number_key(e.key.keysym.sym) >= 0) {
@@ -423,14 +399,12 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // start fading out when there's less than 600ms left in the video
         if (state == TransitionState::NONE) {
             double time_remaining = 0.0;
-            if (mpv_get_property(mpv, "time-remaining", MPV_FORMAT_DOUBLE, &time_remaining) >= 0) {
-                if (time_remaining <= 0.6 && time_remaining >= 0.0) {
-                    state = TransitionState::FADE_OUT_END;
-                    transition_start = SDL_GetTicks();
-                }
+            if (mpv_get_property(mpv, "time-remaining", MPV_FORMAT_DOUBLE, &time_remaining) >= 0
+                && time_remaining <= 0.6 && time_remaining >= 0.0) {
+                state = TransitionState::FADE_OUT_END;
+                transition_start = SDL_GetTicks();
             }
         }
 
@@ -459,10 +433,8 @@ int main(int argc, char* argv[]) {
             {MPV_RENDER_PARAM_INVALID, nullptr}
         };
 
-        // let mpv draw the current frame
         mpv_render_context_render(mpv_gl, render_params);
 
-        // figure out how much black overlay we need right now
         float alpha = 0.0f;
         Uint32 elapsed = current_time - transition_start;
 
@@ -490,64 +462,55 @@ int main(int argc, char* argv[]) {
             else {
                 state = TransitionState::ENDED;
                 alpha = 1.0f;
-                // only show the stop icon if we've reached the end of the playlist
-                if (current_index == (int)playlist.size() - 1) {
+                if (current_index == (int)playlist.size() - 1)
                     stop_icon_visible = true;
-                }
             }
         } else if (state == TransitionState::ENDED) {
-            alpha = 1.0f; // keep the screen fully black
+            alpha = 1.0f;
         } else if (state == TransitionState::CROSSFADE_OUT) {
-            if (elapsed < 150) alpha = (elapsed / 150.0f); // quick 150ms fade out
+            if (elapsed < 150) alpha = (elapsed / 150.0f);
             else {
-                // jump to the target timestamp
                 std::string cmd_str = "seek " + std::to_string(pending_seek) + " absolute";
                 mpv_command_string(mpv, cmd_str.c_str());
                 state = TransitionState::WAIT_FOR_CROSSFADE_IN;
                 alpha = 1.0f;
             }
         } else if (state == TransitionState::CROSSFADE_IN) {
-            if (elapsed < 150) alpha = 1.0f - (elapsed / 150.0f); // quick 150ms fade in
+            if (elapsed < 150) alpha = 1.0f - (elapsed / 150.0f);
             else state = TransitionState::NONE;
         } else if (state == TransitionState::WAIT_FOR_FADE_IN) {
             alpha = 1.0f;
         } else if (state == TransitionState::WAIT_FOR_CROSSFADE_IN) {
             alpha = 1.0f;
-            // fallback: if mpv doesn't fire playback_restart in time, just fade in anyway
-            if (elapsed > 500) {
+            if (elapsed > 500) { // fallback timeout
                 state = TransitionState::CROSSFADE_IN;
                 transition_start = SDL_GetTicks();
             }
         }
 
-        // sync audio volume with the visual fade when enabled for this video
+        // fade audio along with the overlay when the flag is set
         if (playlist[current_index].enable_audio_fading && state != TransitionState::NONE && state != TransitionState::ENDED) {
-            double base_vol = playlist[current_index].volume;
-            double faded_vol = base_vol * (1.0 - (double)alpha);
-            mpv_set_property(mpv, "volume", MPV_FORMAT_DOUBLE, &faded_vol);
+            double vol = playlist[current_index].volume * (1.0 - (double)alpha);
+            mpv_set_property(mpv, "volume", MPV_FORMAT_DOUBLE, &vol);
         } else if (state == TransitionState::NONE) {
-            // make sure volume is back to normal once the transition ends
-            double base_vol = playlist[current_index].volume;
-            mpv_set_property(mpv, "volume", MPV_FORMAT_DOUBLE, &base_vol);
+            double vol = playlist[current_index].volume;
+            mpv_set_property(mpv, "volume", MPV_FORMAT_DOUBLE, &vol);
         }
 
         if (alpha > 0.0f) {
-            glEnable(0x0BE2); // gl_blend
+            glEnable(GL_BLEND);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-            glColor4f(0.0f, 0.0f, 0.0f, alpha);
-            glBegin(0x0007); // gl_quads
-            glVertex2f(-1.0f, -1.0f);
-            glVertex2f( 1.0f, -1.0f);
-            glVertex2f( 1.0f,  1.0f);
-            glVertex2f(-1.0f,  1.0f);
+            glColor4f(0, 0, 0, alpha);
+            glBegin(GL_QUADS);
+            glVertex2f(-1, -1);
+            glVertex2f( 1, -1);
+            glVertex2f( 1,  1);
+            glVertex2f(-1,  1);
             glEnd();
-            glDisable(0x0BE2);
+            glDisable(GL_BLEND);
         }
 
-        // pause/play indicator
         draw_pause_play_icon(w, h);
-
-        // stop icon if playlist ended
         draw_stop_icon(w, h);
 
         SDL_GL_SwapWindow(window);
