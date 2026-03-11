@@ -190,12 +190,12 @@ void draw_top_left_icon(int win_w, int win_h) {
         glColor4f(1, 1, 1, alpha * 0.85f);
 
         glBegin(GL_TRIANGLES);
-        // First arrow
+        // first arrow
         glVertex2f(x, y);
         glVertex2f(x, y + size);
         glVertex2f(x + size * 0.6f, y + size / 2.0f);
         
-        // Second arrow
+        // second arrow
         float x2 = x + size * 0.6f + gap;
         glVertex2f(x2, y);
         glVertex2f(x2, y + size);
@@ -230,33 +230,33 @@ void draw_volume_icon(int win_w, int win_h) {
 
     float margin = 20.0f;
     float size = 18.0f;
-    float x = win_w - margin - size * 2.5f; // Positioned top-right
+    float x = win_w - margin - size * 2.0f; // positioned top-right
     float y = margin;
     
     glColor4f(1, 1, 1, alpha * 0.85f);
     
-    // Draw speaker body
-    glBegin(GL_QUADS);
-    glVertex2f(x, y + size * 0.3f);
-    glVertex2f(x + size * 0.4f, y + size * 0.3f);
-    glVertex2f(x + size * 0.4f, y + size * 0.7f);
-    glVertex2f(x, y + size * 0.7f);
-    glEnd();
+    // draw speaker body
+    // glBegin(GL_QUADS);
+    // glVertex2f(x, y + size * 0.35f);
+    // glVertex2f(x + size * 0.4f, y + size * 0.35f);
+    // glVertex2f(x + size * 0.4f, y + size * 0.65f);
+    // glVertex2f(x, y + size * 0.65f);
+    // glEnd();
 
-    // Draw speaker cone
     glBegin(GL_TRIANGLES);
     glVertex2f(x + size * 0.4f, y + size * 0.5f);
-    glVertex2f(x + size * 0.8f, y);
-    glVertex2f(x + size * 0.8f, y + size);
+    glVertex2f(x + size * 0.85f, y + size * 0.1f);
+    glVertex2f(x + size * 0.85f, y + size * 0.9f);
     glEnd();
 
-    // Draw + or -
-    float op_x = x + size + 4.0f;
+    // draw + or -
+    // put it closer: cone ends at size * 0.85, so start symbols at size * 1.0
+    float op_x = x + size * 1.0f;
     float op_y = y + size * 0.5f;
-    float line_w = 2.5f;
-    float line_len = 10.0f;
+    float line_w = 2.0f;
+    float line_len = 8.0f;
 
-    // Horizontal bar (for both + and -)
+    // horizontal bar (for both + and -)
     glBegin(GL_QUADS);
     glVertex2f(op_x, op_y - line_w / 2.0f);
     glVertex2f(op_x + line_len, op_y - line_w / 2.0f);
@@ -264,7 +264,7 @@ void draw_volume_icon(int win_w, int win_h) {
     glVertex2f(op_x, op_y + line_w / 2.0f);
     glEnd();
 
-    // Vertical bar (only for +)
+    // vertical bar (only for +)
     if (volume_is_up) {
         glBegin(GL_QUADS);
         glVertex2f(op_x + line_len / 2.0f - line_w / 2.0f, op_y - line_len / 2.0f);
