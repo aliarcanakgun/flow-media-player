@@ -1,0 +1,12 @@
+# build output
+build/
+
+# editor files
+.vs/
+.vscode/
+
+# archives
+*.7z
+
+# prebuilt mpv binaries (grab them via the setup script)
+libmpv/
