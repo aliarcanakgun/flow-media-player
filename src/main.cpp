@@ -129,18 +129,20 @@ void toggle_pause(mpv_handle* mpv) {
     mpv_set_property_async(mpv, 0, "pause", MPV_FORMAT_FLAG, &pause);
 }
 
+enum class TopLeftIcon { PAUSE, PLAY, SEEK };
+
 static bool icon_visible = false;
-static bool icon_is_paused = false;
+static TopLeftIcon current_top_left_icon = TopLeftIcon::PLAY;
 static Uint32 icon_show_time = 0;
 static const Uint32 ICON_DURATION_MS = 1000;
 
-void show_pause_icon(bool paused) {
+void show_top_left_icon(TopLeftIcon type) {
     icon_visible = true;
-    icon_is_paused = paused;
+    current_top_left_icon = type;
     icon_show_time = SDL_GetTicks();
 }
 
-void draw_pause_play_icon(int win_w, int win_h) {
+void draw_top_left_icon(int win_w, int win_h) {
     if (!icon_visible) return;
 
     Uint32 elapsed = SDL_GetTicks() - icon_show_time;
@@ -155,7 +157,7 @@ void draw_pause_play_icon(int win_w, int win_h) {
     float margin = 20.0f;
     float size = 18.0f;
 
-    if (icon_is_paused) {
+    if (current_top_left_icon == TopLeftIcon::PAUSE) {
         float bar_w = 5.0f, gap = 4.0f;
         float x = margin, y = margin;
         glColor4f(1, 1, 1, alpha * 0.85f);
@@ -173,7 +175,7 @@ void draw_pause_play_icon(int win_w, int win_h) {
         glVertex2f(x + bar_w + gap + bar_w, y + size);
         glVertex2f(x + bar_w + gap, y + size);
         glEnd();
-    } else {
+    } else if (current_top_left_icon == TopLeftIcon::PLAY) {
         float x = margin, y = margin;
         glColor4f(1, 1, 1, alpha * 0.85f);
 
@@ -181,6 +183,94 @@ void draw_pause_play_icon(int win_w, int win_h) {
         glVertex2f(x, y);
         glVertex2f(x, y + size);
         glVertex2f(x + size * 0.85f, y + size / 2.0f);
+        glEnd();
+    } else if (current_top_left_icon == TopLeftIcon::SEEK) {
+        float x = margin, y = margin;
+        float gap = -2.0f;
+        glColor4f(1, 1, 1, alpha * 0.85f);
+
+        glBegin(GL_TRIANGLES);
+        // First arrow
+        glVertex2f(x, y);
+        glVertex2f(x, y + size);
+        glVertex2f(x + size * 0.6f, y + size / 2.0f);
+        
+        // Second arrow
+        float x2 = x + size * 0.6f + gap;
+        glVertex2f(x2, y);
+        glVertex2f(x2, y + size);
+        glVertex2f(x2 + size * 0.6f, y + size / 2.0f);
+        glEnd();
+    }
+
+    end_overlay();
+}
+
+static bool volume_icon_visible = false;
+static Uint32 volume_show_time = 0;
+static bool volume_is_up = true;
+
+void show_volume_icon(bool is_up) {
+    volume_icon_visible = true;
+    volume_show_time = SDL_GetTicks();
+    volume_is_up = is_up;
+}
+
+void draw_volume_icon(int win_w, int win_h) {
+    if (!volume_icon_visible) return;
+
+    Uint32 elapsed = SDL_GetTicks() - volume_show_time;
+    if (elapsed >= ICON_DURATION_MS) {
+        volume_icon_visible = false;
+        return;
+    }
+
+    float alpha = 1.0f - (float)elapsed / (float)ICON_DURATION_MS;
+    begin_overlay(win_w, win_h);
+
+    float margin = 20.0f;
+    float size = 18.0f;
+    float x = win_w - margin - size * 2.5f; // Positioned top-right
+    float y = margin;
+    
+    glColor4f(1, 1, 1, alpha * 0.85f);
+    
+    // Draw speaker body
+    glBegin(GL_QUADS);
+    glVertex2f(x, y + size * 0.3f);
+    glVertex2f(x + size * 0.4f, y + size * 0.3f);
+    glVertex2f(x + size * 0.4f, y + size * 0.7f);
+    glVertex2f(x, y + size * 0.7f);
+    glEnd();
+
+    // Draw speaker cone
+    glBegin(GL_TRIANGLES);
+    glVertex2f(x + size * 0.4f, y + size * 0.5f);
+    glVertex2f(x + size * 0.8f, y);
+    glVertex2f(x + size * 0.8f, y + size);
+    glEnd();
+
+    // Draw + or -
+    float op_x = x + size + 4.0f;
+    float op_y = y + size * 0.5f;
+    float line_w = 2.5f;
+    float line_len = 10.0f;
+
+    // Horizontal bar (for both + and -)
+    glBegin(GL_QUADS);
+    glVertex2f(op_x, op_y - line_w / 2.0f);
+    glVertex2f(op_x + line_len, op_y - line_w / 2.0f);
+    glVertex2f(op_x + line_len, op_y + line_w / 2.0f);
+    glVertex2f(op_x, op_y + line_w / 2.0f);
+    glEnd();
+
+    // Vertical bar (only for +)
+    if (volume_is_up) {
+        glBegin(GL_QUADS);
+        glVertex2f(op_x + line_len / 2.0f - line_w / 2.0f, op_y - line_len / 2.0f);
+        glVertex2f(op_x + line_len / 2.0f + line_w / 2.0f, op_y - line_len / 2.0f);
+        glVertex2f(op_x + line_len / 2.0f + line_w / 2.0f, op_y + line_len / 2.0f);
+        glVertex2f(op_x + line_len / 2.0f - line_w / 2.0f, op_y + line_len / 2.0f);
         glEnd();
     }
 
@@ -375,11 +465,13 @@ int main(int argc, char* argv[]) {
                     request_exit();
                 } else if (e.key.keysym.sym == SDLK_SPACE) {
                     toggle_pause(mpv);
-                    show_pause_icon(is_paused);
+                    show_top_left_icon(is_paused ? TopLeftIcon::PAUSE : TopLeftIcon::PLAY);
                 } else if (e.key.keysym.sym == SDLK_UP) {
                     change_volume(mpv, 10.0);
+                    show_volume_icon(true);
                 } else if (e.key.keysym.sym == SDLK_DOWN) {
                     change_volume(mpv, -10.0);
+                    show_volume_icon(false);
                 } else if (e.key.keysym.sym == SDLK_RIGHT) {
                     if (!playlist.empty() && current_index < (int)playlist.size() - 1)
                         try_navigate(current_index + 1);
@@ -406,6 +498,7 @@ int main(int argc, char* argv[]) {
                             pending_seek = jump_time;
                             state = TransitionState::CROSSFADE_OUT;
                             transition_start = SDL_GetTicks();
+                            show_top_left_icon(TopLeftIcon::SEEK);
                         }
                     }
                 }
@@ -530,7 +623,8 @@ int main(int argc, char* argv[]) {
             glDisable(GL_BLEND);
         }
 
-        draw_pause_play_icon(w, h);
+        draw_top_left_icon(w, h);
+        draw_volume_icon(w, h);
         draw_stop_icon(w, h);
 
         SDL_GL_SwapWindow(window);
