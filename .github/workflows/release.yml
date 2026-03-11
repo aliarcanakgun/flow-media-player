@@ -1,0 +1,46 @@
+name: Windows Release Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install 7-Zip
+        run: choco install 7zip -y
+
+      - name: Download libmpv (via project script)
+        shell: pwsh
+        run: .\download_mpv.ps1
+
+      - name: Configure CMake
+        run: |
+          cmake -B build -G "Visual Studio 17 2022" -A x64
+
+      - name: Build Release
+        run: cmake --build build --config Release
+
+      - name: Package release files
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path staging | Out-Null
+          Copy-Item build/Release/FlowMediaPlayer.exe staging/
+          Copy-Item libmpv/libmpv-2.dll staging/
+          Compress-Archive -Path staging/* -DestinationPath FlowMediaPlayer-windows-x64.zip
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: FlowMediaPlayer-windows-x64.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
